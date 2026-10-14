@@ -1,0 +1,50 @@
+# Publie une version du catalogue (Release « catalogue-<version> ») sur GitHub Pages.
+# Lancé par le générateur (npm run catalog:publish) ou à la main pour un retour arrière :
+# Actions > Publier le catalogue > Run workflow, en indiquant une version déjà publiée.
+# Le déploiement Pages remplace le site d'un seul coup : jamais de catalogue à moitié publié.
+name: Publier le catalogue
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version du catalogue (Release catalogue-<version>)"
+        required: true
+        type: string
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  publier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    steps:
+      - name: Télécharger la version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$VERSION" in (*[!A-Za-z0-9._-]*|"") echo "Version invalide : $VERSION"; exit 1;; esac
+          gh release download "catalogue-$VERSION" --repo "$GITHUB_REPOSITORY" --pattern "catalogue-$VERSION.tar" --dir dl
+          mkdir site
+          tar -xf "dl/catalogue-$VERSION.tar" -C site
+      - name: Vérifier les empreintes et le manifeste
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          test "$(jq -r .version site/manifest.json)" = "$VERSION"
+          test "$(jq -r .schema site/manifest.json)" = "1"
+          cd "site/v/$VERSION"
+          sha256sum --check --quiet --strict checksums.sha256
+          echo "$(wc -l < checksums.sha256) fichiers conformes"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deploiement
+        uses: actions/deploy-pages@v5
